@@ -22,22 +22,28 @@ export const fetchRatesFromGemini = async (): Promise<ExchangeRate[]> => {
   const targetUrl = "https://rate.bot.com.tw/xrt?Lang=en-US";
   
   // Robust Fetching Strategy: Use multiple CORS proxies with fallback
-  // CHANGED: Reordered priorities. AllOrigins is currently blocked by CORS on GitHub Pages.
-  // CorsProxy.io and Jina are more reliable alternatives.
+  // CHANGED: Prioritized Jina AI Reader as CorsProxy.io is returning 403.
   const fetchStrategies = [
     {
-      name: "CorsProxy.io",
-      url: (url: string) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
-      extractor: async (res: Response) => await res.text()
-    },
-    {
       name: "Jina AI Reader",
+      // Jina returns Markdown which is great for LLM parsing
       url: (url: string) => `https://r.jina.ai/${url}`,
       extractor: async (res: Response) => await res.text()
     },
     {
       name: "CodeTabs",
       url: (url: string) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
+      extractor: async (res: Response) => await res.text()
+    },
+    {
+      name: "ThingProxy",
+      url: (url: string) => `https://thingproxy.freeboard.io/fetch/${url}`,
+      extractor: async (res: Response) => await res.text()
+    },
+    {
+      name: "CorsProxy.io",
+      // Moved down due to reported 403 errors
+      url: (url: string) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
       extractor: async (res: Response) => await res.text()
     },
     {
@@ -57,10 +63,14 @@ export const fetchRatesFromGemini = async (): Promise<ExchangeRate[]> => {
       const proxyUrl = strategy.url(targetUrl);
       
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 15000); // Increased timeout to 15s
+      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout
       
       const response = await fetch(proxyUrl, { 
-          signal: controller.signal
+          signal: controller.signal,
+          headers: {
+            // Some proxies require a user-agent to avoid blocking
+            'X-Requested-With': 'XMLHttpRequest' 
+          }
       });
       clearTimeout(timeoutId);
       
@@ -71,7 +81,8 @@ export const fetchRatesFromGemini = async (): Promise<ExchangeRate[]> => {
       const content = await strategy.extractor(response);
       
       // Basic validation to check if we got the rate page
-      if (content && typeof content === 'string' && (content.includes("Currency") || content.includes("USD") || content.includes("美金"))) {
+      // Jina returns Markdown, others return HTML. We look for keywords.
+      if (content && typeof content === 'string' && (content.includes("Currency") || content.includes("USD") || content.includes("美金") || content.includes("Download CSV"))) {
         contentData = content;
         successfulStrategy = strategy.name;
         console.log(`Successfully fetched via ${strategy.name}`);
@@ -87,13 +98,14 @@ export const fetchRatesFromGemini = async (): Promise<ExchangeRate[]> => {
 
   if (!contentData) {
     console.error("All proxies failed. Last error:", lastError);
-    throw new Error(`無法連線至台灣銀行官網。已嘗試多組線路均無回應，請檢查您的網路連線或稍後再試。(Last Error: ${lastError?.message})`);
+    throw new Error(`無法連線至台灣銀行官網。已嘗試所有線路均無回應 (Jina, CodeTabs, ThingProxy...)。(Last Error: ${lastError?.message})`);
   }
 
-  // Optimized Table Extraction to prevent truncation of currencies at the bottom
+  // Optimized Table Extraction
   let processingText = contentData;
+  
+  // If not Jina (which returns clean Markdown), try to truncate HTML to reduce tokens
   if (successfulStrategy !== "Jina AI Reader") {
-      // Try to find the specific exchange rate table to reduce token usage and avoid header/footer noise
       const tableMarkers = ['<table title="牌告匯率"', '<table title="Exchange Rate"', '<table'];
       
       let tableStart = -1;
@@ -103,19 +115,15 @@ export const fetchRatesFromGemini = async (): Promise<ExchangeRate[]> => {
       }
 
       if (tableStart !== -1) {
-          // Find the closing of this specific table
-          // We look for the closing </table> tag that matches the nesting level, but for simplicity, 
-          // taking a large chunk from the start of the table is usually safer than regex for raw HTML.
-          // We truncate to 300,000 chars starting from the table, which covers all known currencies.
+          // Truncate to ensure we cover all currencies but remove header noise
           processingText = contentData.substring(tableStart);
       }
   }
 
   // Prompt: Parse the Text (HTML or Markdown)
-  // Note: Limit increased to 300,000 to ensure ZAR, SEK, CNY, etc. are included.
   const prompt = `
     Role: Data Extractor
-    Task: Extract exchange rate data from the provided text (which is either raw HTML or Markdown table) into a strict JSON array.
+    Task: Extract exchange rate data from the provided text (which is either raw HTML or Markdown) into a strict JSON array.
     
     Source Content (Truncated):
     ${processingText.substring(0, 300000)} 
@@ -124,7 +132,7 @@ export const fetchRatesFromGemini = async (): Promise<ExchangeRate[]> => {
     1. Extract fields: currency (code), cashBuy, cashSell, spotBuy, spotSell.
     2. Handle missing values: If a cell has "-" or is empty, use null.
     3. Currency Name: Map the currency code to Traditional Chinese (e.g., USD -> 美金, JPY -> 日圓, EUR -> 歐元, GBP -> 英鎊, AUD -> 澳幣).
-    4. **IMPORTANT**: Scan the ENTIRE text. Do not stop after the first few currencies. Look for ZAR, SEK, SGD, CHF, NZD, THB, PHP, IDR, KRW, VND, MYR, CNY.
+    4. **IMPORTANT**: Scan the ENTIRE text. Look for ZAR, SEK, SGD, CHF, NZD, THB, PHP, IDR, KRW, VND, MYR, CNY.
     5. **Validation**: Ensure 'Buying' rates are generally lower than 'Selling' rates. 
     
     Output JSON Format:
