@@ -1,36 +1,14 @@
 import React, { Component, ReactNode } from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
-import { APP_CONFIG } from './config';
+// Standard import ensures Vite bundles the CSS correctly with Tailwind
+import './index.css'; 
 
 // --- CRITICAL FIX: Polyfill 'process' for browser environments ---
 // This prevents "ReferenceError: process is not defined" which causes the white screen.
 if (typeof (window as any).process === 'undefined') {
   (window as any).process = { env: {} };
 }
-
-// Logic to handle CSS loading based on configuration
-const loadStyles = () => {
-  if (APP_CONFIG.USE_LOCAL_CSS) {
-    console.log('Using Local CSS mode (./index.css)');
-    if (!document.querySelector('link[href="./index.css"]')) {
-      const link = document.createElement('link');
-      link.rel = 'stylesheet';
-      link.href = './index.css';
-      document.head.appendChild(link);
-    }
-  } else {
-    console.log('Using Tailwind CDN mode');
-    if (!document.querySelector('script[src*="cdn.tailwindcss.com"]')) {
-      const script = document.createElement('script');
-      script.src = "https://cdn.tailwindcss.com";
-      script.id = "tailwind-cdn"; // Add ID for easier debugging
-      document.head.appendChild(script);
-    }
-  }
-};
-
-loadStyles();
 
 // --- Error Boundary Component ---
 // Catches errors in the component tree and displays a fallback UI instead of a blank screen.

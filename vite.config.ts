@@ -14,6 +14,15 @@ export default defineConfig(({ mode }) => {
   // We must prioritize the system process.env to catch the injected secret.
   const apiKey = process.env.API_KEY || env.API_KEY;
 
+  // Add logging to debug build process (visible in GitHub Actions logs)
+  console.log(`[Build Config] Mode: ${mode}`);
+  console.log(`[Build Check] API_KEY found: ${!!apiKey} (Length: ${apiKey ? apiKey.length : 0})`);
+
+  if (!apiKey) {
+    console.warn('⚠️ WARNING: API_KEY is undefined! The app will not function correctly in production.');
+    console.warn('👉 Please ensure you have set the API_KEY secret in GitHub Settings > Secrets > Actions.');
+  }
+
   return {
     plugins: [react()],
     // Relative base path for GitHub Pages compatibility
