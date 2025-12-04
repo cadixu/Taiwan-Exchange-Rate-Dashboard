@@ -22,10 +22,12 @@ export const fetchRatesFromGemini = async (): Promise<ExchangeRate[]> => {
   const targetUrl = "https://rate.bot.com.tw/xrt?Lang=en-US";
   
   // Robust Fetching Strategy: Use multiple CORS proxies with fallback
+  // CHANGED: Reordered priorities. AllOrigins is currently blocked by CORS on GitHub Pages.
+  // CorsProxy.io and Jina are more reliable alternatives.
   const fetchStrategies = [
     {
-      name: "AllOrigins (Raw)",
-      url: (url: string) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}&timestamp=${Date.now()}`,
+      name: "CorsProxy.io",
+      url: (url: string) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
       extractor: async (res: Response) => await res.text()
     },
     {
@@ -34,13 +36,13 @@ export const fetchRatesFromGemini = async (): Promise<ExchangeRate[]> => {
       extractor: async (res: Response) => await res.text()
     },
     {
-      name: "CorsProxy.io",
-      url: (url: string) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
+      name: "CodeTabs",
+      url: (url: string) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
       extractor: async (res: Response) => await res.text()
     },
     {
-      name: "CodeTabs",
-      url: (url: string) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
+      name: "AllOrigins (Raw)",
+      url: (url: string) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}&timestamp=${Date.now()}`,
       extractor: async (res: Response) => await res.text()
     }
   ];
@@ -68,6 +70,7 @@ export const fetchRatesFromGemini = async (): Promise<ExchangeRate[]> => {
       
       const content = await strategy.extractor(response);
       
+      // Basic validation to check if we got the rate page
       if (content && typeof content === 'string' && (content.includes("Currency") || content.includes("USD") || content.includes("美金"))) {
         contentData = content;
         successfulStrategy = strategy.name;
