@@ -1,0 +1,5 @@
+{
+  "name": "Taiwan Exchange Rate Dashboard",
+  "description": "Real-time exchange rates from Bank of Taiwan using Gemini Search Grounding, featuring automatic mid-rate calculation.",
+  "requestFramePermissions": []
+}
