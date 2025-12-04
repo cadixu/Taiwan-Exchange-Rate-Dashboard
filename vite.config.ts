@@ -5,18 +5,24 @@ import react from '@vitejs/plugin-react';
 export default defineConfig(({ mode }) => {
   // Load env file based on `mode` in the current working directory.
   // The third parameter '' means load all env vars regardless of prefix
-  const env = loadEnv(mode, process.cwd(), '');
+  // Fix: Cast process to any to avoid TypeScript error "Property 'cwd' does not exist on type 'Process'"
+  const env = loadEnv(mode, (process as any).cwd(), '');
+
+  // CRITICAL FIX for GitHub Actions:
+  // In the CI environment, the secret is in `process.env.API_KEY`.
+  // In local development, it might be in `env.API_KEY` (loaded from .env).
+  // We must prioritize the system process.env to catch the injected secret.
+  const apiKey = process.env.API_KEY || env.API_KEY;
 
   return {
     plugins: [react()],
     // Relative base path for GitHub Pages compatibility
     base: './',
     define: {
-      // Critical Fix: Ensure we check both the loaded .env object AND the system process.env
-      // This ensures it works locally (.env) and in GitHub Actions (Secrets)
-      'process.env.API_KEY': JSON.stringify(env.API_KEY || process.env.API_KEY),
-      // Define an empty process.env to prevent "process is not defined" crashes in some libs
-      'process.env': {}
+      // We explicitly replace ONLY the specific API Key string.
+      // DO NOT define 'process.env': {} here, as it overwrites the specific key replacement below,
+      // causing the key to become undefined in the built production code.
+      'process.env.API_KEY': JSON.stringify(apiKey),
     },
     build: {
       outDir: 'dist',
