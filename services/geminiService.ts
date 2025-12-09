@@ -21,13 +21,11 @@ export const fetchRatesFromGemini = async (): Promise<ExchangeRate[]> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const targetUrl = "https://rate.bot.com.tw/xrt?Lang=en-US";
   
-  // Robust Fetching Strategy: "Fail Fast"
-  // 1. Timeout reduced to 3.5s to avoid waiting on dead proxies.
-  // 2. Removed blocked proxies (CorsProxy, AllOrigins) to prevent 403/CORS errors.
+  // Robust Fetching Strategy
+  // Timeout increased to 10s to allow slower proxies to respond (fixing "All proxies failed").
   const fetchStrategies = [
     {
       name: "Jina AI Reader",
-      // Jina returns Markdown which is great for LLM parsing
       url: (url: string) => `https://r.jina.ai/${url}`,
       extractor: async (res: Response) => await res.text()
     },
@@ -40,8 +38,12 @@ export const fetchRatesFromGemini = async (): Promise<ExchangeRate[]> => {
       name: "ThingProxy",
       url: (url: string) => `https://thingproxy.freeboard.io/fetch/${url}`,
       extractor: async (res: Response) => await res.text()
+    },
+    {
+      name: "AllOrigins",
+      url: (url: string) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+      extractor: async (res: Response) => await res.text()
     }
-    // CorsProxy.io and AllOrigins are currently blocked/unstable on GitHub Pages
   ];
 
   let contentData = "";
@@ -54,9 +56,8 @@ export const fetchRatesFromGemini = async (): Promise<ExchangeRate[]> => {
       const proxyUrl = strategy.url(targetUrl);
       
       const controller = new AbortController();
-      // FAIL FAST: Timeout set to 3500ms (3.5s). 
-      // If a proxy is slow, it's likely overloaded or throttling, so we skip it immediately.
-      const timeoutId = setTimeout(() => controller.abort(), 3500); 
+      // Timeout increased to 10000ms (10s) to allow proxies enough time
+      const timeoutId = setTimeout(() => controller.abort(), 10000); 
       
       const response = await fetch(proxyUrl, { 
           signal: controller.signal,
@@ -89,7 +90,7 @@ export const fetchRatesFromGemini = async (): Promise<ExchangeRate[]> => {
 
   if (!contentData) {
     console.error("All proxies failed. Last error:", lastError);
-    throw new Error(`無法連線至台灣銀行官網。已嘗試所有線路均無回應 (Jina, CodeTabs, ThingProxy)。請稍後再試。`);
+    throw new Error(`無法連線至台灣銀行官網。已嘗試所有線路均無回應 (Jina, CodeTabs, ThingProxy, AllOrigins)。請稍後再試。`);
   }
 
   // Optimized Table Extraction
@@ -135,11 +136,32 @@ export const fetchRatesFromGemini = async (): Promise<ExchangeRate[]> => {
     if (!text) throw new Error("AI 解析回傳為空");
 
     const cleanedText = cleanJsonString(text);
-    const data: ExchangeRate[] = JSON.parse(cleanedText);
+    const rawData = JSON.parse(cleanedText);
       
-    if (!Array.isArray(data) || data.length === 0) {
+    if (!Array.isArray(rawData) || rawData.length === 0) {
       throw new Error("解析出的資料格式錯誤或為空");
     }
+
+    // Strict Type Conversion
+    // Ensures all numbers are actually numbers, preventing UI crashes.
+    const data: ExchangeRate[] = rawData.map((item: any) => {
+        const toNum = (val: any) => {
+            if (val === null || val === undefined || val === "-") return null;
+            // First, try to convert to number directly
+            const num = Number(val);
+            // Check if result is a valid number
+            return isNaN(num) ? null : num;
+        };
+
+        return {
+            currency: String(item.currency || ""),
+            currencyName: String(item.currencyName || ""),
+            cashBuy: toNum(item.cashBuy),
+            cashSell: toNum(item.cashSell),
+            spotBuy: toNum(item.spotBuy),
+            spotSell: toNum(item.spotSell),
+        };
+    });
 
     return data.map(item => {
          // Fix swapped buy/sell logic if necessary (Buying should be < Selling)

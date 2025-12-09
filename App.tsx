@@ -19,17 +19,26 @@ const App: React.FC = () => {
     try {
       const rawRates = await fetchRatesFromGemini();
       
-      // Calculate Mid-Rates
+      // Calculate Mid-Rates with strict type safety
       const processedRates: CalculatedRate[] = rawRates.map(rate => {
         let cashMid: number | null = null;
         let spotMid: number | null = null;
 
+        // Use Number() wrapper to prevent string concatenation (e.g. "30"+"30" = "3030")
         if (rate.cashBuy !== null && rate.cashSell !== null) {
-          cashMid = (rate.cashBuy + rate.cashSell) / 2;
+          const buy = Number(rate.cashBuy);
+          const sell = Number(rate.cashSell);
+          if (!isNaN(buy) && !isNaN(sell)) {
+            cashMid = (buy + sell) / 2;
+          }
         }
 
         if (rate.spotBuy !== null && rate.spotSell !== null) {
-          spotMid = (rate.spotBuy + rate.spotSell) / 2;
+          const buy = Number(rate.spotBuy);
+          const sell = Number(rate.spotSell);
+          if (!isNaN(buy) && !isNaN(sell)) {
+            spotMid = (buy + sell) / 2;
+          }
         }
 
         return {

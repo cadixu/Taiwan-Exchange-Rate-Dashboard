@@ -6,10 +6,24 @@ interface RateTableProps {
   showSpot: boolean;
 }
 
-const formatNumber = (num: number | null) => {
-  if (num === null) return '-';
-  // Use toFixed(3) for mobile space saving? No, 4 is standard for forex.
-  return num.toFixed(4);
+// CRITICAL FIX: Robust number formatting with Try-Catch
+// Prevents "num.toFixed is not a function" crash if API returns strings or undefined.
+const formatNumber = (num: number | string | null | undefined) => {
+  try {
+    if (num === null || num === undefined || num === '') return '-';
+    
+    // Explicit conversion
+    const val = Number(num);
+    
+    // Check for NaN
+    if (isNaN(val)) return '-';
+    
+    return val.toFixed(4);
+  } catch (e) {
+    // Ultimate fallback if anything goes wrong
+    console.warn("Formatting error:", e);
+    return '-';
+  }
 };
 
 const RateTable: React.FC<RateTableProps> = ({ rates, showSpot }) => {
